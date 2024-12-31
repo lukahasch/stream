@@ -106,18 +106,37 @@ pub fn parser() -> impl Parser<char, Node<()>, Error = Error> {
             .labelled("let");
 
         let generic_let = just("let")
-                .padded()
-                .ignore_then(just("for")
-                    .ignore_then(
-                        pattern.clone()
-                            .delimited_by(just('('), just('('))
-                    ))
-                .then(just('=').ignore_then(expr.clone()))
-                .map_with_span(|(generics, pattern, value), span| node(Expression::GenericLet { generics, pattern, value }, span))
-
-        let primary = choice((r#let, list, tuple, record, generic, int, string, bool, var))
             .padded()
-            .labelled("primary");
+            .ignore_then(
+                just("for").ignore_then(pattern.clone().delimited_by(just('('), just('('))),
+            )
+            .then(pattern.clone())
+            .then(just('=').ignore_then(expr.clone()))
+            .map_with_span(|((generics, pattern), value), span| {
+                node(
+                    Expression::GenericLet {
+                        generics,
+                        pattern,
+                        value,
+                    },
+                    span,
+                )
+            });
+
+        let primary = choice((
+            generic_let,
+            r#let,
+            list,
+            tuple,
+            record,
+            generic,
+            int,
+            string,
+            bool,
+            var,
+        ))
+        .padded()
+        .labelled("primary");
 
         choice((primary,)).padded()
     })
@@ -144,6 +163,23 @@ pub fn stream(
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn parse_generic_let() {
+        let name = Arc::from("test");
+        let code = stream(&name, "let for(x) x = 1");
+        let result = parser().parse(code);
+        let mut sources = sources(vec![(name.clone(), "let for(x) x = 1")]);
+        match result {
+            Ok(_) => {}
+            Err(errs) => {
+                for e in errs {
+                    e.report().eprint(&mut sources).unwrap();
+                }
+                panic!()
+            }
+        }
+    }
 
     #[test]
     fn parse_let() {
