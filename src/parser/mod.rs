@@ -9,7 +9,7 @@ fn node(expression: Expression<()>, span: Span) -> Node<()> {
     (expression, span).into()
 }
 
-const KEYWORDS: [&str; 5] = ["for", "let", "if", "match", "with"];
+const KEYWORDS: [&str; 6] = ["for", "let", "if", "match", "with", "else"];
 
 /// TODO: float, there is some kinda recursion bug where its going weird places but still works,
 /// performace concern
@@ -105,11 +105,10 @@ pub fn parser() -> impl Parser<char, Node<()>, Error = Error> {
             .padded()
             .labelled("let");
 
-        let generic_let = just("let")
+        let generic_let = just("let for(")
             .padded()
-            .ignore_then(
-                just("for").ignore_then(pattern.clone().delimited_by(just('('), just('('))),
-            )
+            .ignore_then(pattern.clone())
+            .then_ignore(just(')'))
             .then(pattern.clone())
             .then(just('=').ignore_then(expr.clone()))
             .map_with_span(|((generics, pattern), value), span| {
@@ -123,7 +122,73 @@ pub fn parser() -> impl Parser<char, Node<()>, Error = Error> {
                 )
             });
 
+        let function = pattern
+            .clone()
+            .then_ignore(just("->"))
+            .then(expr.clone())
+            .map_with_span(|(arg, body), span| node(Expression::Function { arg, body }, span));
+
+        let method = just("self")
+            .padded()
+            .then_ignore(just("->"))
+            .ignore_then(expr.clone())
+            .map_with_span(|body, span| {
+                node(
+                    Expression::Method {
+                        arg: Pattern::Capture {
+                            name: "self".to_string(),
+                            r#type: None,
+                            span: span.clone(),
+                        },
+                        body,
+                    },
+                    span,
+                )
+            });
+
+        let block = expr
+            .clone()
+            .separated_by(just(';').or(just('\n')).padded())
+            .delimited_by(just('{'), just('}'))
+            .map_with_span(|expressions, span| node(Expression::Block(expressions), span))
+            .padded();
+
+        let r#if = just("if")
+            .ignore_then(expr.clone())
+            .then_ignore(just("then"))
+            .then(expr.clone())
+            .then(just("else").ignore_then(expr.clone()).or_not())
+            .map_with_span(|((condition, then), else_), span| {
+                node(
+                    Expression::If {
+                        condition,
+                        then,
+                        else_,
+                    },
+                    span,
+                )
+            });
+
+        let match_arm = just('|')
+            .ignore_then(pattern.clone())
+            .then_ignore(just("->"))
+            .then(expr.clone())
+            .map(|(pattern, value)| (pattern, value))
+            .padded()
+            .labelled("match arm");
+
+        let r#match = just("match")
+            .ignore_then(expr.clone())
+            .then_ignore(just("with"))
+            .then(match_arm.clone().repeated())
+            .map_with_span(|(value, arms), span| node(Expression::Match { value, arms }, span));
+
         let primary = choice((
+            r#match,
+            r#if,
+            block,
+            method,
+            function,
             generic_let,
             r#let,
             list,
@@ -138,7 +203,23 @@ pub fn parser() -> impl Parser<char, Node<()>, Error = Error> {
         .padded()
         .labelled("primary");
 
-        choice((primary,)).padded()
+        let implementation = primary
+            .clone()
+            .then_ignore(just("::"))
+            .then(expr.clone())
+            .map_with_span(|(r#trait, r#type), span| {
+                node(Expression::Implementation { r#trait, r#type }, span)
+            })
+            .or(primary.clone());
+
+        let access = implementation
+            .clone()
+            .then(just('.').ignore_then(identifier))
+            .map_with_span(|(value, field), span| node(Expression::Access { value, field }, span))
+            .padded()
+            .or(implementation.clone());
+
+        choice((access,)).padded()
     })
 }
 
@@ -165,20 +246,169 @@ mod test {
     use super::*;
 
     #[test]
+    fn test_implementation() {
+        let name = Arc::from("test");
+        let code = stream(&name, "1 :: 2");
+        let result = parser().parse(code);
+        assert_eq!(
+            result,
+            Ok(node(
+                Expression::Implementation {
+                    r#trait: node(Expression::Int(1), (Arc::from("test"), 0..1)),
+                    r#type: node(Expression::Int(2), (Arc::from("test"), 5..6))
+                },
+                (Arc::from("test"), 0..6)
+            ))
+        );
+    }
+
+    #[test]
+    fn test_match() {
+        let name = Arc::from("test");
+        let code = stream(&name, "match 1 with | x -> 1 | _ -> 2");
+        let result = parser().parse(code);
+        assert_eq!(
+            result,
+            Ok(node(
+                Expression::Match {
+                    value: node(Expression::Int(1), (Arc::from("test"), 6..7)),
+                    arms: vec![
+                        (
+                            Pattern::Capture {
+                                name: "x".to_string(),
+                                r#type: None,
+                                span: (Arc::from("test"), 15..16)
+                            },
+                            node(Expression::Int(1), (Arc::from("test"), 20..21))
+                        ),
+                        (
+                            Pattern::Wildcard((Arc::from("test"), 24..25)),
+                            node(Expression::Int(2), (Arc::from("test"), 29..30))
+                        )
+                    ]
+                },
+                (Arc::from("test"), 0..30)
+            ))
+        );
+    }
+
+    #[test]
+    fn test_if() {
+        let name = Arc::from("test");
+        let code = stream(&name, "if true then 1 else 2");
+        let result = parser().parse(code);
+        assert_eq!(
+            result,
+            Ok(node(
+                Expression::If {
+                    condition: node(Expression::Bool(true), (Arc::from("test"), 3..7)),
+                    then: node(Expression::Int(1), (Arc::from("test"), 13..14)),
+                    else_: Some(node(Expression::Int(2), (Arc::from("test"), 20..21))),
+                },
+                (Arc::from("test"), 0..21)
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_block() {
+        let name = Arc::from("test");
+        let code = stream(&name, "{1; 2}");
+        let result = parser().parse(code);
+        assert_eq!(
+            result,
+            Ok(node(
+                Expression::Block(vec![
+                    node(Expression::Int(1), (Arc::from("test"), 1..2)),
+                    node(Expression::Int(2), (Arc::from("test"), 4..5)),
+                ]),
+                (Arc::from("test"), 0..6)
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_method() {
+        let name = Arc::from("test");
+        let code = stream(&name, "self -> x -> y");
+        let result = parser().parse(code);
+        assert_eq!(
+            result,
+            Ok(node(
+                Expression::Method {
+                    arg: Pattern::Capture {
+                        name: "self".to_string(),
+                        r#type: None,
+                        span: (Arc::from("test"), 0..14)
+                    },
+                    body: node(
+                        Expression::Function {
+                            arg: Pattern::Capture {
+                                name: "x".to_string(),
+                                r#type: None,
+                                span: (Arc::from("test"), 8..9)
+                            },
+                            body: node(
+                                Expression::Var("y".to_string()),
+                                (Arc::from("test"), 13..14)
+                            )
+                        },
+                        (Arc::from("test"), 8..14)
+                    )
+                },
+                (Arc::from("test"), 0..14)
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_function() {
+        let name = Arc::from("test");
+        let code = stream(&name, "x -> y");
+        let result = parser().parse(code);
+        assert_eq!(
+            result,
+            Ok(node(
+                Expression::Function {
+                    arg: Pattern::Capture {
+                        name: "x".to_string(),
+                        r#type: None,
+                        span: (Arc::from("test"), 0..1)
+                    },
+                    body: node(Expression::Var("y".to_string()), (Arc::from("test"), 5..6))
+                },
+                (Arc::from("test"), 0..6)
+            ))
+        );
+    }
+
+    #[test]
     fn parse_generic_let() {
         let name = Arc::from("test");
-        let code = stream(&name, "let for(x) x = 1");
+        let code = stream(&name, "let for(y) x = y");
         let result = parser().parse(code);
-        let mut sources = sources(vec![(name.clone(), "let for(x) x = 1")]);
-        match result {
-            Ok(_) => {}
-            Err(errs) => {
-                for e in errs {
-                    e.report().eprint(&mut sources).unwrap();
-                }
-                panic!()
-            }
-        }
+        assert_eq!(
+            result,
+            Ok(node(
+                Expression::GenericLet {
+                    generics: Pattern::Capture {
+                        name: "y".to_string(),
+                        r#type: None,
+                        span: (Arc::from("test"), 8..9)
+                    },
+                    pattern: Pattern::Capture {
+                        name: "x".to_string(),
+                        r#type: None,
+                        span: (Arc::from("test"), 11..12)
+                    },
+                    value: node(
+                        Expression::Var("y".to_string()),
+                        (Arc::from("test"), 15..16)
+                    )
+                },
+                (Arc::from("test"), 0..16)
+            ))
+        );
     }
 
     #[test]
