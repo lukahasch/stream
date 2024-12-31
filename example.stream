@@ -1,0 +1,19 @@
+let for(x) Option = enum { Some(x), None }
+
+let for(x) Option(x).map = |self, f| match self with
+  | Some(x) -> Some(f x)
+  | None -> None
+
+let to_string = trait {
+    to_string = |Self| String
+}
+
+let for(x) to_string::Option(x) = {
+    to_string = |self| match self with
+        | Some(x) -> "Some(" <> x.to_string() <> ")"
+        | None -> "None"
+}
+
+let fib = |n| if n < 2 then n else fib (n - 1) + fib (n - 2)
+
+print $ 10
