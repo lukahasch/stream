@@ -204,9 +204,8 @@ impl Error {
                 ))
                 .with_label(Label::new(span.clone()).with_color(Color::Red))
                 .with_code(self.discriminant()),
-            Error::During { label, error } => error
-                .report_builder()
-                .with_note(format!("during {}", label)),
+            Error::During { label, error } => error.report_builder(),
+            //.with_note(format!("during {}", label)),
         }
     }
 

@@ -1,6 +1,5 @@
 #![feature(impl_trait_in_bindings, let_chains, box_patterns)]
 
-use ariadne::{Color, Label, Report, ReportKind, sources};
 use chumsky::prelude::*;
 use std::ops::Range;
 use std::sync::Arc;
@@ -39,7 +38,6 @@ pub enum Expression<Tag> {
     Implementation { r#trait: Node<Tag>, r#type: Node<Tag> },
 
     Let { pattern: Pattern<Tag>, value: Node<Tag> },
-    GenericLet { generics: Pattern<Tag>, pattern: Pattern<Tag>,  value: Node<Tag> },
 
     Mutate { target: Node<Tag>, value: Node<Tag> },
 
