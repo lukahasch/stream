@@ -1,14 +1,14 @@
-for<x> let Option<x> = enum { Some(x), None }
+let Option<x> = enum { Some(x), None }
 
-for<x> let Option<x>.map = self -> f -> match self with
+let Option<x>.map = self -> f -> match self with
   | Some(x) -> Some(f x)
   | None -> None
 
 let to_string = trait {
-    to_string: |Self| String
+    to_string: |&Self| String
 }
 
-for<x> let to_string::Option<x> = {
+let to_string::Option<x> = {
     to_string = self -> match self with
         | Some(x) -> "Some(" <> x.to_string() <> ")"
         | None -> "None"

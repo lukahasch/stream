@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use super::*;
+use ariadne::{Cache, sources};
 use chumsky::{
     BoxStream, Stream,
     prelude::*,
@@ -270,7 +273,7 @@ pub fn parser() -> impl Parser<char, Node<()>, Error = Error> {
 pub fn stream(
     file: &Arc<str>,
     contents: impl ToString,
-) -> BoxStream<'_, char, (std::sync::Arc<str>, std::ops::Range<usize>)> {
+) -> BoxStream<'static, char, (std::sync::Arc<str>, std::ops::Range<usize>)> {
     let contents = contents.to_string();
     BoxStream::from_iter(
         (file.clone(), contents.len()..contents.len()),
@@ -285,9 +288,84 @@ pub fn stream(
     )
 }
 
+pub struct Origin {
+    pub files: Vec<(Arc<str>, String)>,
+}
+
+impl Origin {
+    pub fn new() -> Self {
+        Self { files: Vec::new() }
+    }
+
+    pub fn load<'a>(
+        &'a mut self,
+        file_name: &str,
+    ) -> Result<BoxStream<'a, char, (std::sync::Arc<str>, std::ops::Range<usize>)>, std::io::Error>
+    {
+        if let Some((arc, contents)) = self.get(file_name) {
+            Ok(stream(arc, contents.clone()))
+        } else {
+            let path = Path::new(file_name);
+            let contents = std::fs::read_to_string(path)?;
+            let arc: Arc<str> = Arc::from(path.to_str().unwrap());
+            self.files.push((arc.clone(), contents.clone()));
+            Ok(stream(&arc, contents))
+        }
+    }
+
+    pub fn get<'a>(&'a self, name: &str) -> Option<&'a (Arc<str>, String)> {
+        self.files.iter().find(|(n, _)| **n == *name)
+    }
+
+    pub fn cache(&self) -> impl Cache<Arc<str>> {
+        sources(self.files.clone())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_sum_mul() {
+        let name = Arc::from("test");
+        let code = stream(&name, "1 + 2 * 3");
+        let result = parser().parse(code);
+        assert_eq!(
+            result,
+            Ok(node(
+                Expression::Apply {
+                    f: node(
+                        Expression::Apply {
+                            f: node(Expression::Var("+".to_string()), (Arc::from("test"), 2..9)),
+                            arg: node(
+                                Expression::Apply {
+                                    f: node(
+                                        Expression::Apply {
+                                            f: node(
+                                                Expression::Var("*".to_string()),
+                                                (Arc::from("test"), 6..9)
+                                            ),
+                                            arg: node(
+                                                Expression::Int(3),
+                                                (Arc::from("test"), 8..9)
+                                            )
+                                        },
+                                        (Arc::from("test"), 6..9)
+                                    ),
+                                    arg: node(Expression::Int(2), (Arc::from("test"), 4..5))
+                                },
+                                (Arc::from("test"), 6..9)
+                            )
+                        },
+                        (Arc::from("test"), 2..9)
+                    ),
+                    arg: node(Expression::Int(1), (Arc::from("test"), 0..1))
+                },
+                (Arc::from("test"), 2..9)
+            ))
+        );
+    }
 
     #[test]
     fn test_factor() {
