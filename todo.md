@@ -1,3 +1,0 @@
-- figure out generics in for<x> blocks
-- generic let?
-- change () to <> in generics
