@@ -1,5 +1,5 @@
 use ariadne::{Cache, sources};
-use chumsky::{BoxStream, Stream, prelude::*};
+use chumsky::{Stream, prelude::*};
 use std::sync::Arc;
 
 use crate::{Span, error::Error};
@@ -86,8 +86,8 @@ pub fn parser() -> impl Parser<char, Vec<(Token, Span)>, Error = Error> {
     let control = one_of(control).map_with_span(|c, span| (Token::Control(c), span));
 
     choice((
-        float, integer, string, boolean, symbol, r#if, r#else, r#let, r#match, r#module, r#for,
-        r#then, r#with, identifier, paren, control,
+        control, float, integer, string, boolean, symbol, r#if, r#else, r#let, r#match, r#module,
+        r#for, r#then, r#with, identifier, paren,
     ))
     .padded()
     .repeated()
@@ -112,6 +112,7 @@ pub fn lex<'a>(
             .into_iter(),
     );
     let tokens = parser().parse(stream)?;
+    dbg!("lexed");
     Ok(Stream::from_iter(
         (source.clone(), input.len()..input.len()),
         tokens.into_iter(),

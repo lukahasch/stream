@@ -16,59 +16,84 @@ pub fn parser() -> impl Parser<Token, Node<()>, Error = Error> {
         }
         .map_with_span(|expr, span| Node::new(expr, span));
 
-        let list = just(Token::Paren('['))
-            .ignore_then(expr.clone().separated_by(just(Token::Control(','))))
-            .then_ignore(just(Token::Paren(']')))
-            .map_with_span(|exprs, span| {
-                Node::new(Expression::Literal(Literal::List(exprs)), span)
+        let list = expr
+            .clone()
+            .separated_by(just(Token::Control(',')))
+            .delimited_by(just(Token::Paren('[')), just(Token::Paren(']')))
+            .map_with_span(|nodes, span| {
+                Node::new(Expression::Literal(Literal::List(nodes)), span)
             });
 
-        let tuple = just(Token::Paren('('))
-            .ignore_then(expr.clone().separated_by(just(Token::Control(','))))
-            .then_ignore(just(Token::Paren(')')))
-            .map_with_span(|exprs, span| {
-                Node::new(Expression::Literal(Literal::Tuple(exprs)), span)
+        let tuple = expr
+            .clone()
+            .separated_by(just(Token::Control(',')))
+            .delimited_by(just(Token::Paren('(')), just(Token::Paren(')')))
+            .map_with_span(|nodes, span| {
+                Node::new(Expression::Literal(Literal::Tuple(nodes)), span)
             });
 
-        let kv_pair = select! { Token::Identifier(s) => s}
-            .then(just(Token::Symbol(['=', '\0'])).ignore_then(expr.clone()));
+        let kv_pair = expr
+            .clone()
+            .then_ignore(just(Token::Control(':')))
+            .then(expr.clone());
 
-        let record = just(Token::Paren('{'))
-            .ignore_then(kv_pair.clone().separated_by(just(Token::Control(','))))
-            .then_ignore(just(Token::Paren('}')))
-            .map_with_span(|fields, span| {
+        let map = kv_pair
+            .clone()
+            .separated_by(just(Token::Control(',')))
+            .delimited_by(just(Token::Paren('{')), just(Token::Paren('}')))
+            .map_with_span(|pairs, span| Node::new(Expression::Literal(Literal::Map(pairs)), span));
+
+        let r#type = just(Token::Control(':')).ignore_then(expr.clone()).or_not();
+
+        let capture = select! {
+            Token::Identifier(s) => s,
+        }
+        .then(r#type.clone())
+        .map(|(name, r#type)| Pattern::Capture { name, r#type });
+
+        let pattern = capture;
+
+        let generic = just(Token::For).ignore_then(pattern.clone().delimited_by(
+            just(Token::Symbol(['<', '\0'])),
+            just(Token::Symbol(['>', '\0'])),
+        ));
+
+        let r#let = just(Token::Let)
+            .ignore_then(pattern.clone())
+            .then_ignore(just(Token::Symbol(['=', '\0'])))
+            .then(expr.clone())
+            .then(just(Token::Control(';')).ignore_then(expr.clone()).or_not())
+            .map_with_span(|((pattern, value), then), span| {
                 Node::new(
-                    Expression::Literal(Literal::Record(
-                        fields.into_iter().map(|(k, v)| (k, v)).collect(),
-                    )),
+                    Expression::Let {
+                        pattern,
+                        value,
+                        then,
+                    },
                     span,
                 )
             });
 
-        let parenthesised = just(Token::Paren('('))
-            .ignore_then(expr.clone())
-            .then_ignore(just(Token::Paren(')')));
+        let generic_let = just(Token::Let)
+            .ignore_then(generic.clone())
+            .then(pattern.clone())
+            .then_ignore(just(Token::Symbol(['=', '\0'])))
+            .then(expr.clone())
+            .then(just(Token::Control(';')).ignore_then(expr.clone()).or_not())
+            .map_with_span(|(((generics, pattern), value), then), span| {
+                Node::new(
+                    Expression::GenericLet {
+                        pattern,
+                        generics,
+                        value,
+                        then,
+                    },
+                    span,
+                )
+            });
 
-        let literal = parenthesised.or(basic).or(list).or(tuple).or(record);
-
-        let block = just(Token::Paren('{'))
-            .ignore_then(expr.clone().separated_by(just(Token::Control(';'))))
-            .then_ignore(just(Token::Paren('}')))
-            .map_with_span(|exprs, span| Node::new(Expression::Block(exprs), span));
-
-        let capture = select! { Token::Identifier(s) => s }
-            .then(just(Token::Control(':')).ignore_then(expr.clone()).or_not())
-            .map(|(name, r#type)| Pattern::Capture { name, r#type });
-
-        let pattern = capture;
-
-        let generic_for = just(Token::For)
-            .ignore_then(just(Token::Symbol(['<', '\0'])))
-            .ignore_then(pattern.clone())
-            .then_ignore(just(Token::Symbol(['>', '\0'])));
-
-        let generic =
-            generic_for
+        let generic_value =
+            generic
                 .clone()
                 .then(expr.clone())
                 .map_with_span(|(generics, value), span| {
@@ -81,30 +106,6 @@ pub fn parser() -> impl Parser<Token, Node<()>, Error = Error> {
             .then(expr.clone())
             .map_with_span(|(param, body), span| {
                 Node::new(Expression::Function { param, body }, span)
-            });
-
-        let r#let = just(Token::Let)
-            .ignore_then(pattern.clone())
-            .then_ignore(just(Token::Symbol(['=', '\0'])))
-            .then(expr.clone())
-            .map_with_span(|(pattern, value), span| {
-                Node::new(Expression::Let { pattern, value }, span)
-            });
-
-        let generic_let = just(Token::Let)
-            .ignore_then(generic_for)
-            .then(pattern.clone())
-            .then_ignore(just(Token::Symbol(['=', '\0'])))
-            .then(expr.clone())
-            .map_with_span(|((generics, pattern), value), span| {
-                Node::new(
-                    Expression::GenericLet {
-                        pattern,
-                        generics,
-                        value,
-                    },
-                    span,
-                )
             });
 
         let r#if = just(Token::If)
@@ -140,22 +141,52 @@ pub fn parser() -> impl Parser<Token, Node<()>, Error = Error> {
             .ignore_then(expr.clone())
             .map_with_span(|body, span| Node::new(Expression::Module { body }, span));
 
+        let parens = expr
+            .clone()
+            .delimited_by(just(Token::Paren('(')), just(Token::Paren(')')));
+
         let primary = choice((
-            literal,
-            block,
-            generic,
             function,
-            r#let,
-            generic_let,
-            r#if,
+            basic,
+            parens,
             r#match,
+            r#if,
+            generic_value,
+            generic_let,
+            r#let,
+            list,
+            tuple,
+            map,
             module,
         ));
 
+        fn create(
+            p: impl Parser<Token, Node<()>, Error = Error> + Clone,
+            expr: impl Parser<Token, Node<()>, Error = Error> + Clone,
+        ) -> impl Parser<Token, Node<()>, Error = Error> + Clone {
+            expr.clone()
+                .then(p.then(expr.clone()).repeated().at_least(1).or_not())
+                .map_with_span(|(init, transformations), span| {
+                    if let Some(transformations) = transformations {
+                        transformations.into_iter().fold(init, |acc, (f, arg)| {
+                            Node::new(
+                                Expression::Apply {
+                                    f: Node::new(Expression::Apply { f, arg }, span.clone()),
+                                    arg: acc,
+                                },
+                                span.clone(),
+                            )
+                        })
+                    } else {
+                        init
+                    }
+                })
+        }
+
         let implementation = primary
             .clone()
-            .then_ignore(just(Token::Symbol([':', ':'])))
-            .then(expr.clone())
+            .then_ignore(just(Token::Symbol(['@', '\0'])))
+            .then(primary.clone())
             .map_with_span(|(value, implementation), span| {
                 Node::new(
                     Expression::Implementation {
@@ -164,32 +195,80 @@ pub fn parser() -> impl Parser<Token, Node<()>, Error = Error> {
                     },
                     span,
                 )
-            })
-            .or(primary);
+            });
 
-        let access = implementation
+        let access = primary
             .clone()
-            .then(
-                just(Token::Symbol(['.', '\0'])).ignore_then(select! { Token::Identifier(s) => s }),
-            )
+            .then_ignore(just(Token::Symbol(['.', '\0'])))
+            .then(select! {
+                Token::Identifier(s) => s,
+            })
             .map_with_span(|(value, field), span| {
                 Node::new(Expression::Access { value, field }, span)
-            })
-            .or(implementation);
+            });
 
-        let apply = access
+        let primary = choice((implementation, access, primary));
+
+        let apply = primary
             .clone()
-            .then(access.clone())
-            .then(access.clone().repeated())
-            .map_with_span(|((f, arg), args), span: Span| {
-                args.into_iter().fold(
-                    Node::new(Expression::Apply { f, arg }, span.clone()),
-                    move |acc, arg| Node::new(Expression::Apply { f: acc, arg }, span.clone()),
-                )
-            })
-            .or(access);
+            .then(primary.clone().repeated().at_least(1).or_not())
+            .map_with_span(|(init, args), span: Span| {
+                if let Some(args) = args {
+                    args.into_iter().fold(init, |acc, arg| {
+                        Node::new(Expression::Apply { f: acc, arg }, span.clone())
+                    })
+                } else {
+                    init
+                }
+            });
 
-        apply
+        let factors = create(
+            select! {
+                Token::Symbol(['*', '\0']) => Expression::Literal(Literal::Variable("*".into())),
+                Token::Symbol(['/', '\0']) => Expression::Literal(Literal::Variable("/".into())),
+            }
+            .map_with_span(|expr, span| Node::new(expr, span)),
+            apply,
+        );
+
+        let sums = create(
+            select! {
+                Token::Symbol(['+', '\0']) => Expression::Literal(Literal::Variable("+".into())),
+                Token::Symbol(['-', '\0']) => Expression::Literal(Literal::Variable("-".into())),
+            }
+            .map_with_span(|expr, span| Node::new(expr, span)),
+            factors,
+        );
+
+        let comparisons = create(
+            select! {
+                Token::Symbol(['<', '=']) => Expression::Literal(Literal::Variable("<=".into())),
+                Token::Symbol(['>', '=']) => Expression::Literal(Literal::Variable(">=".into())),
+                Token::Symbol(['<', '\0']) => Expression::Literal(Literal::Variable("<".into())),
+                Token::Symbol(['>', '\0']) => Expression::Literal(Literal::Variable(">".into())),
+                Token::Symbol(['=', '=']) => Expression::Literal(Literal::Variable("==".into())),
+                Token::Symbol(['!', '=']) => Expression::Literal(Literal::Variable("!=".into())),
+            }
+            .map_with_span(|expr, span| Node::new(expr, span)),
+            sums,
+        );
+
+        let logic = create(
+            select! {
+                Token::Symbol(['&', '&']) => Expression::Literal(Literal::Variable("&&".into())),
+                Token::Symbol(['|', '|']) => Expression::Literal(Literal::Variable("||".into())),
+            }
+            .map_with_span(|expr, span| Node::new(expr, span)),
+            comparisons,
+        );
+
+        let pipe = logic
+            .clone()
+            .then_ignore(just(Token::Symbol(['|', '>'])))
+            .then(expr.clone())
+            .map_with_span(|(arg, f), span| Node::new(Expression::Apply { f, arg }, span));
+
+        choice((pipe, logic))
     })
 }
 

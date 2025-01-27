@@ -1,4 +1,9 @@
-#![feature(str_as_str, impl_trait_in_assoc_type, impl_trait_in_bindings)]
+#![feature(
+    str_as_str,
+    impl_trait_in_assoc_type,
+    impl_trait_in_bindings,
+    iter_intersperse
+)]
 
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
@@ -23,11 +28,10 @@ pub struct Node<Tag> {
 pub enum Expression<Tag> {
     Literal(Literal<Tag>),
 
-    Block(Vec<Node<Tag>>),
     Generic { generics: Pattern<Tag>, value: Node<Tag> },
     Function { param: Pattern<Tag>, body: Node<Tag> },
-    Let { pattern: Pattern<Tag>, value: Node<Tag> },
-    GenericLet { pattern: Pattern<Tag>, generics: Pattern<Tag>, value: Node<Tag> },
+    Let { pattern: Pattern<Tag>, value: Node<Tag>, then: Option<Node<Tag>> },
+    GenericLet { pattern: Pattern<Tag>, generics: Pattern<Tag>, value: Node<Tag>, then: Option<Node<Tag>> },
     If { condition: Node<Tag>, then: Node<Tag>, r#else: Option<Node<Tag>> },
     Match { value: Node<Tag>, arms: Vec<(Pattern<Tag>, Node<Tag>)> },
 
@@ -53,7 +57,7 @@ pub enum Literal<Tag> {
 
     List(Vec<Node<Tag>>),
     Tuple(Vec<Node<Tag>>),
-    Record(BTreeMap<Arc<str>, Node<Tag>>),
+    Map(Vec<(Node<Tag>, Node<Tag>)>),
 }
 
 /// All stream patterns
@@ -71,4 +75,8 @@ impl Node<()> {
             tag: (),
         }
     }
+}
+
+pub fn beginning(span: &Span) -> Span {
+    (span.0.clone(), span.1.start..span.1.start)
 }

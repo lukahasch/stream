@@ -1,34 +1,28 @@
-use crate::{Span, parser::lexer::Token};
+use ariadne::{Color, Fmt, Label, Report, ReportKind};
+
+use crate::{Span, beginning, parser::lexer::Token};
 
 /// The error type used by the stream compiler
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u32)]
 pub enum Error {
     UnterminatedString(Span) = 0,
-    ExpectedEOF {
-        found: Option<String>,
-        span: Span,
-    } = 1,
-    UnexpectedEOF {
-        expected: Vec<String>,
-        span: Span,
-    } = 2,
     UnexpetedInput {
         found: String,
         expected: Vec<String>,
         span: Span,
-    } = 3,
+    } = 1,
     UnclosedDelimiter {
         unclosed_span: Span,
         unclosed: String,
         span: Span,
         expected: String,
         found: Option<String>,
-    } = 4,
+    } = 2,
     UnknownEscapeSequence {
         sequence: char,
         span: Span,
-    } = 5,
+    } = 3,
 }
 
 pub fn display_char(c: char) -> String {
@@ -44,7 +38,21 @@ impl chumsky::Error<char> for Error {
     }
 
     fn merge(self, other: Self) -> Self {
-        self
+        match (self, other) {
+            (
+                Self::UnexpetedInput {
+                    found,
+                    expected,
+                    span,
+                },
+                Self::UnexpetedInput { expected: e2, .. },
+            ) => Self::UnexpetedInput {
+                found,
+                expected: expected.into_iter().chain(e2).collect(),
+                span,
+            },
+            (s, _) => s,
+        }
     }
 
     fn expected_input_found<Iter: IntoIterator<Item = Option<char>>>(
@@ -52,29 +60,17 @@ impl chumsky::Error<char> for Error {
         expected: Iter,
         found: Option<char>,
     ) -> Self {
-        let expected: Vec<char> = expected.into_iter().filter_map(|c| c).collect();
-        if expected.len() == 0 {
-            Self::ExpectedEOF {
-                found: found.map(|f| display_char(f)),
-                span,
-            }
-        } else if found.is_none() {
-            Self::UnexpectedEOF {
-                expected: expected
-                    .into_iter()
-                    .map(|f| display_char(f))
-                    .collect::<Vec<_>>(),
-                span,
-            }
+        let e: Vec<char> = expected.into_iter().filter_map(|c| c).collect();
+        let expected: Vec<String> = if e.len() == 0 {
+            vec!["EOF".to_string()]
         } else {
-            Self::UnexpetedInput {
-                found: format!("{:?}", found.unwrap()),
-                expected: expected
-                    .into_iter()
-                    .map(|f| display_char(f))
-                    .collect::<Vec<_>>(),
-                span,
-            }
+            e.into_iter().map(|c| display_char(c)).collect()
+        };
+        let found = found.map(|f| display_char(f)).unwrap_or("EOF".to_string());
+        Self::UnexpetedInput {
+            found,
+            expected,
+            span,
         }
     }
 
@@ -112,29 +108,17 @@ impl chumsky::Error<Token> for Error {
         expected: Iter,
         found: Option<Token>,
     ) -> Self {
-        let expected: Vec<Token> = expected.into_iter().filter_map(|c| c).collect();
-        if expected.len() == 0 {
-            Self::ExpectedEOF {
-                found: found.map(|f| format!("{}", f)),
-                span,
-            }
-        } else if found.is_none() {
-            Self::UnexpectedEOF {
-                expected: expected
-                    .into_iter()
-                    .map(|f| format!("{}", f))
-                    .collect::<Vec<_>>(),
-                span,
-            }
+        let e: Vec<Token> = expected.into_iter().filter_map(|c| c).collect();
+        let expected: Vec<String> = if e.len() == 0 {
+            vec!["EOF".to_string()]
         } else {
-            Self::UnexpetedInput {
-                found: format!("{}", found.unwrap()),
-                expected: expected
-                    .into_iter()
-                    .map(|f| format!("{}", f))
-                    .collect::<Vec<_>>(),
-                span,
-            }
+            e.into_iter().map(|c| format!("{}", c)).collect()
+        };
+        let found = found.map(|f| format!("{}", f)).unwrap_or("EOF".to_string());
+        Self::UnexpetedInput {
+            found,
+            expected,
+            span,
         }
     }
 
@@ -156,6 +140,71 @@ impl chumsky::Error<Token> for Error {
 }
 
 impl Error {
+    pub fn report(&self) -> Report<Span> {
+        match self {
+            Self::UnterminatedString(span) => Report::build(ReportKind::Error, span.clone())
+                .with_code(self.code())
+                .with_message("Unterminated String")
+                .with_label(
+                    Label::new(beginning(span))
+                        .with_message("This \" is unterminated")
+                        .with_color(Color::Red),
+                )
+                .with_help("Terminate the string with a \"")
+                .finish(),
+            Self::UnexpetedInput {
+                expected,
+                found,
+                span,
+            } => Report::build(ReportKind::Error, span.clone())
+                .with_code(self.code())
+                .with_message(format!(
+                    "Unexpected input: expected {}; found {}",
+                    expected
+                        .into_iter()
+                        .map(|e| e.as_str().fg(Color::Green).to_string())
+                        .intersperse(", ".fg(Color::White).to_string())
+                        .collect::<String>(),
+                    found.fg(Color::Red)
+                ))
+                .with_label(
+                    Label::new(span.clone())
+                        .with_message("Unexpected input")
+                        .with_color(Color::Red),
+                )
+                .finish(),
+            Self::UnclosedDelimiter {
+                unclosed_span,
+                unclosed,
+                span,
+                expected,
+                found,
+            } => Report::build(ReportKind::Error, span.clone())
+                .with_code(self.code())
+                .with_message(format!(
+                    "Unclosed delimiter: expected {}; found {}",
+                    expected.fg(Color::Green),
+                    if let Some(found) = found {
+                        found.fg(Color::Red).to_string()
+                    } else {
+                        "EOF".fg(Color::Red).to_string()
+                    }
+                ))
+                .with_label(
+                    Label::new(unclosed_span.clone())
+                        .with_message(format!("This {} is unclosed", unclosed.fg(Color::Red)))
+                        .with_color(Color::Red),
+                )
+                .with_label(
+                    Label::new(span.clone())
+                        .with_message("Error encountered here")
+                        .with_color(Color::Red),
+                )
+                .finish(),
+            _ => todo!(),
+        }
+    }
+
     pub fn code(&self) -> u32 {
         // SAFETY: Because `Self` is marked `repr(u32)`, its layout is a `repr(C)` `union`
         //         between `repr(C)` structs, each of which has the `u32` discriminant as its first

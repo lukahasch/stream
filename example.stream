@@ -1,1 +1,15 @@
-add 1 2
+let arrow = position(self) |> zone.non_living 10 _;
+let enemy = raycast (position(self)) (look(self)) |> zone.living 10 _ |> index 0 _;
+
+if let e = enemy && let a = arrow then
+    let vec = position(e) - position(a);
+    impulse a (vec * 10)
+else
+    let arrow = position(self) |> zone.non_living 10 _;
+let enemy = raycast (position(self)) (look(self)) |> zone.living 10 _ |> index 0 _;
+
+if let e = enemy && let a = arrow then
+    let vec = position(e) - position(a);
+    impulse a (vec * 10)
+else
+0
