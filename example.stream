@@ -1,15 +1,26 @@
-let arrow = position(self) |> zone.non_living 10 _;
-let enemy = raycast (position(self)) (look(self)) |> zone.living 10 _ |> index 0 _;
+Option :: Type -> Type
+Option T = enum
+    | Some -> (T)
+    | None
 
-if let e = enemy && let a = arrow then
-    let vec = position(e) - position(a);
-    impulse a (vec * 10)
-else
-    let arrow = position(self) |> zone.non_living 10 _;
-let enemy = raycast (position(self)) (look(self)) |> zone.living 10 _ |> index 0 _;
+Debug :: Trait
+Debug = trait
+    | name -> String
+    | fmt -> (self) -> String
 
-if let e = enemy && let a = arrow then
-    let vec = position(e) - position(a);
-    impulse a (vec * 10)
-else
-0
+Some :: int -> Option int
+Some x = match x with
+    | 10 -> Some (10)
+    | _ -> None
+
+Node :: Type -> Type
+Node V = struct
+    | value :: A
+    | next :: Option (Node V)
+    | trait Debug = impl
+        | name = "Node"
+        | fmt = (self) ->
+            match self.next with
+                | Some n -> "Node { value: " ++ self.value ++ ", next: " ++ n ++ " }"
+                | None -> "Node { value: " ++ self.value ++ ", next: None }"
+    | push self v = Node { value = v, next = Some self }
