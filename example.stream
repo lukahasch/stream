@@ -1,26 +1,38 @@
 Option :: Type -> Type
-Option T = enum
-    | Some -> (T)
-    | None
+Option T = enum {
+    Some -> (T)
+    None
+}
 
 Debug :: Trait
-Debug = trait
-    | name -> String
-    | fmt -> (self) -> String
+Debug = trait {
+    name :: String
+    fmt :: Self -> String
+}
 
 Some :: int -> Option int
-Some x = match x with
-    | 10 -> Some (10)
-    | _ -> None
+Some x = match x with {
+    10 -> Some (10)
+    _ -> None
+}
 
 Node :: Type -> Type
-Node V = struct
-    | value :: A
-    | next :: Option (Node V)
-    | trait Debug = impl
-        | name = "Node"
-        | fmt = (self) ->
-            match self.next with
-                | Some n -> "Node { value: " ++ self.value ++ ", next: " ++ n ++ " }"
-                | None -> "Node { value: " ++ self.value ++ ", next: None }"
-    | push self v = Node { value = v, next = Some self }
+Node V = struct {
+    value :: A
+    next :: Option (Node V)
+    with {
+        trait Debug = impl {
+            name = "Node"
+            fmt = (self) ->
+                match self.next with {
+                    Some n -> "Node { value: " ++ self.value ++ ", next: " ++ n ++ " }"
+                    None -> "Node { value: " ++ self.value ++ ", next: None }"
+                }
+        }
+        push self v = Node { value = v, next = Some self }
+    }
+}
+
+
+print x = let stdout = std.io.stdout in stdout.write x
+closure = \x y z -> x + y + z

@@ -1,44 +1,35 @@
-use nom::Input;
-use std::ops::{Add, Range};
+use crate::Span;
+use nom::{Compare, IResult, Input};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Span {
-    pub offset: Range<usize>,
-    pub origin: &'static str,
-}
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub struct Spanned<'a> {
     input: &'a str,
-    offset: usize,
-    origin: &'static str,
+    original: &'a str,
+    source: &'static str,
 }
 
 impl<'a> Spanned<'a> {
-    pub fn new(input: &'a str, origin: &'static str) -> Self {
+    pub fn new(source: &'static str, input: &'a str) -> Self {
         Self {
             input,
-            offset: 0,
-            origin,
+            original: input,
+            source,
         }
+    }
+
+    pub fn offset(&self) -> usize {
+        self.input.as_ptr() as usize - self.original.as_ptr() as usize
     }
 
     pub fn span(&self) -> Span {
         Span {
-            offset: self.offset..self.offset,
-            origin: self.origin,
+            offset: self.offset()..self.offset(),
+            source: self.source,
         }
     }
-}
 
-impl Add<Span> for Span {
-    type Output = Span;
-
-    fn add(self, other: Span) -> Span {
-        Span {
-            offset: self.offset.start..other.offset.end,
-            origin: self.origin,
-        }
+    pub fn as_str(&self) -> &'a str {
+        self.input
     }
 }
 
@@ -54,16 +45,16 @@ impl<'a> Input for Spanned<'a> {
     fn take(&self, index: usize) -> Self {
         Self {
             input: &self.input[..index],
-            offset: self.offset,
-            origin: self.origin,
+            original: self.original,
+            source: self.source,
         }
     }
 
     fn take_from(&self, index: usize) -> Self {
         Self {
             input: &self.input[index..],
-            offset: self.offset + index,
-            origin: self.origin,
+            original: self.original,
+            source: self.source,
         }
     }
 
@@ -72,13 +63,13 @@ impl<'a> Input for Spanned<'a> {
         (
             Self {
                 input: prefix,
-                offset: self.offset,
-                origin: self.origin,
+                original: self.original,
+                source: self.source,
             },
             Self {
                 input: suffix,
-                offset: self.offset + index,
-                origin: self.origin,
+                original: self.original,
+                source: self.source,
             },
         )
     }
@@ -100,5 +91,25 @@ impl<'a> Input for Spanned<'a> {
         P: Fn(Self::Item) -> bool,
     {
         self.input.position(predicate)
+    }
+}
+
+impl Compare<&str> for Spanned<'_> {
+    fn compare(&self, t: &str) -> nom::CompareResult {
+        self.input.compare(t)
+    }
+
+    fn compare_no_case(&self, t: &str) -> nom::CompareResult {
+        self.input.compare_no_case(t)
+    }
+}
+
+impl<'a> Compare<Spanned<'a>> for Spanned<'a> {
+    fn compare(&self, t: Spanned<'a>) -> nom::CompareResult {
+        self.input.compare(t.input)
+    }
+
+    fn compare_no_case(&self, t: Spanned<'a>) -> nom::CompareResult {
+        self.input.compare_no_case(t.input)
     }
 }
