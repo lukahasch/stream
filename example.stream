@@ -1,0 +1,13 @@
+def fib = fn(n) usize =>
+    match n <= 2
+        | true => n
+        | false => fib(n - 1) + fib(n - 2);
+
+let n = 10
+print $ fib n
+
+type Event = Start | Stop
+type State = Idle(i32) | Running(i32)
+
+
+type Producer = T where T::produce: fn(&mut T) Event && T: Sized
