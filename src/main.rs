@@ -1,3 +1,1 @@
-fn main() {
-    stream::parser::test();
-}
+fn main() {}

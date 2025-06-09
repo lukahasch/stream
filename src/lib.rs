@@ -1,135 +1,33 @@
-#![feature(unboxed_closures, fn_traits)]
+use std::ops::{Deref, DerefMut};
 
-pub mod parser;
+pub mod types;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Span<'source> {
-    source: &'source str,
-    start: usize,
-    end: usize,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Spanned<T, S> {
+    pub value: T,
+    pub span: S,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Expression<'source> {
-    Pattern(Pattern<'source>, Span<'source>),
-    Let(Pattern<'source>, Box<Expression<'source>>, Span<'source>),
-    Define(Pattern<'source>, Box<Expression<'source>>, Span<'source>),
-
-    Match {
-        expression: Box<Expression<'source>>,
-        branches: Vec<(Pattern<'source>, Expression<'source>, Span<'source>)>,
-        source_id: Span<'source>,
-    },
-    Function {
-        input: Pattern<'source>,
-        body: Box<Expression<'source>>,
-        return_type: Option<Box<Type<'source>>>,
-        source_id: Span<'source>,
-    },
-
-    Type(Box<Type<'source>>, Span<'source>),
-
-    Binary(
-        Binary,
-        Box<Expression<'source>>,
-        Box<Expression<'source>>,
-        Span<'source>,
-    ),
-    Not(Box<Expression<'source>>, Span<'source>),
-
-    Sequence(Vec<Expression<'source>>, Span<'source>),
-
-    /// This is an invalid expression only produced by the compiler to represent an error
-    /// while still being able to continue parsing.
-    Error(Error<'source>),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Type<'source> {
-    Tuple(Vec<Type<'source>>, Span<'source>),
-    Enum(Vec<Type<'source>>, Span<'source>),
-    Struct(Vec<(&'source str, Type<'source>)>, Span<'source>),
-    Generic(&'source str, Box<Expression<'source>>, Span<'source>),
-
-    Integer(Span<'source>),
-    Float(Span<'source>),
-    Character(Span<'source>),
-    String(Span<'source>),
-    Boolean(Span<'source>),
-
-    Function(Pattern<'source>, Box<Type<'source>>, Span<'source>),
-
-    Expression(Expression<'source>, Span<'source>),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Pattern<'source> {
-    Variable(&'source str, Option<Box<Type<'source>>>, Span<'source>),
-    Literal(&'source str, Span<'source>),
-    Tuple(Vec<Pattern<'source>>, Span<'source>),
-
-    Wildcard(Span<'source>),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Binary {
-    Add,
-    Sub,
-    Mul,
-    Div,
-
-    Or,
-    And,
-    Xor,
-
-    Call,
-
-    Equal,
-    Greater,
-    Less,
-
-    Satisfies,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Context {
-    Let,
-    Define,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Error<'source> {
-    Expected {
-        expected: &'source str,
-        found: &'source str,
-        span: Span<'source>,
-    },
-}
-
-impl<'source> ariadne::Span for Span<'source> {
-    type SourceId = &'source str;
-
-    fn start(&self) -> usize {
-        self.start
+impl<T, S> Spanned<T, S> {
+    pub fn new(value: T, span: S) -> Self {
+        Spanned { value, span }
     }
 
-    fn end(&self) -> usize {
-        self.end
+    pub fn into_inner(self) -> T {
+        self.value
     }
+}
 
-    fn len(&self) -> usize {
-        self.end.saturating_sub(self.start)
+impl<T, S> Deref for Spanned<T, S> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
+}
 
-    fn is_empty(&self) -> bool {
-        self.start == self.end
-    }
-
-    fn source(&self) -> &Self::SourceId {
-        &self.source
-    }
-
-    fn contains(&self, offset: usize) -> bool {
-        offset < self.end && offset > self.start
+impl<T, S> DerefMut for Spanned<T, S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
     }
 }

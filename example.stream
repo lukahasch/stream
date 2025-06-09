@@ -1,13 +1,31 @@
-def fib = fn(n) usize =>
-    match n <= 2
-        | true => n
-        | false => fib(n - 1) + fib(n - 2);
+typeclass Add T with
+    type Output
+    add :: Self -> T -> Self:Output
 
-let n = 10
-print $ fib n
+typeclass AddInt where Self <: Add Int + Add:Output == Int
 
-type Event = Start | Stop
-type State = Idle(i32) | Running(i32)
+type Int = Z | S Int
 
+instance Add Int for Int with
+    type Output = Int
+    add = match (_, _) with
+        | (Z, y) -> y
+        | (y, Z) -> y
+        | (S x, y) -> S (add x y)
 
-type Producer = T where T::produce: fn(&mut T) Event && T: Sized
+for T type Point = struct {
+    x: T,
+    y: T
+} where T <: Add T
+
+instance Add Point for Point with
+    type Output = Point
+    add struct { x, y } struct { x: x', y: y' } =
+        struct { x: add x x', y: add y y' }
+
+for T instance Add T for T where T <: Struct and T:Fields:satisfy |T| -> T <: Add T + Add:Output == T with
+    type Output = T
+    add a b = fields a
+        |> zip $ fields b
+        |> map (\(x, y) -> add x y)
+        |> construct T
