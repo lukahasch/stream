@@ -1,0 +1,20 @@
+def five = 5
+
+def five x = 5 * x
+
+def five (x, y) = 5 * x + y
+
+type Point = struct {
+    x: Int,
+    y: Int
+}
+
+type Printable = trait {
+    def print: (O) -> String
+    type O: Printable
+}
+
+type Point X = struct {
+    x: X,
+    y: X
+}

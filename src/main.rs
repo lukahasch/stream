@@ -1,3 +1,1 @@
-fn main() {
-    hex::test();
-}
+fn main() {}
