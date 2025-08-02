@@ -1,6 +1,6 @@
 use crate::{
-    Result,
-    error::{Error, Warning},
+    Result, Span,
+    error::{Error, Expected, Found, Warning},
 };
 use std::marker::PhantomData;
 
@@ -14,7 +14,7 @@ pub trait Parser<'a, W, E, F, Output> {
     ) -> Result<(usize, Output), W, E, F>;
 }
 
-pub trait Parsable<'a, W, E, F>: Sized {
+pub trait Parsable<'a, W = Warning, E = Error, F = Error>: Sized {
     fn parse(
         input: &'a str,
         index: usize,
@@ -243,10 +243,16 @@ impl<'a, 'b> Parser<'a, Warning, Error, Error, &'a str> for &'b str {
         if input.get(index..).is_some_and(|s| s.starts_with(self)) {
             Result::Ok((index + self.len(), &input[index..index + self.len()]))
         } else {
-            Result::Error(Error::Error(format!(
-                "Expected '{self}', found '{}' in file {location}",
-                &input[index..]
-            )))
+            let found = Found::parse(input, index, location)?;
+            let expeted = Expected::Thing(self.to_string());
+            todo!()
         }
     }
+}
+
+pub fn index(_: &str, index: usize, location: &'static str) -> Result<Span, Warning, Error, Error> {
+    Result::Ok(Span {
+        location: location,
+        range: index..index,
+    })
 }

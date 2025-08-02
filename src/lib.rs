@@ -3,11 +3,10 @@
     stmt_expr_attributes,
     decl_macro,
     impl_trait_in_fn_trait_return,
-    try_trait_v2
+    try_trait_v2,
+    never_type
 )]
 #![allow(invalid_type_param_default)]
-
-use std::ops::FromResidual;
 
 use crate::error::{Error, Warning};
 
@@ -77,10 +76,59 @@ impl<T, W, E, F> Result<T, W, E, F> {
     }
 }
 
+impl<T> std::ops::Try for Result<T> {
+    type Output = (T, Option<Vec<Warning>>);
+    type Residual = Result<!>;
+
+    fn from_output(output: Self::Output) -> Self {
+        let (value, warnings) = output;
+        if let Some(warnings) = warnings {
+            Result::Warning(value, warnings)
+        } else {
+            Result::Ok(value)
+        }
+    }
+
+    fn branch(self) -> std::ops::ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            Result::Ok(value) => std::ops::ControlFlow::Continue((value, None)),
+            Result::Warning(value, warnings) => {
+                std::ops::ControlFlow::Continue((value, Some(warnings)))
+            }
+            Result::Error(err) => std::ops::ControlFlow::Break(Result::Error(err)),
+            Result::Fatal(fatal) => std::ops::ControlFlow::Break(Result::Fatal(fatal)),
+        }
+    }
+}
+
+impl<T> std::ops::FromResidual for Result<T> {
+    fn from_residual(residual: <Self as std::ops::Try>::Residual) -> Self {
+        match residual {
+            Result::Error(err) => Result::Error(err),
+            Result::Fatal(fatal) => Result::Fatal(fatal),
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span {
     location: &'static str,
     range: std::ops::Range<usize>,
+}
+
+impl std::ops::Add for Span {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        if self.location != other.location {
+            panic!("Cannot add spans from different locations");
+        }
+        Span {
+            location: self.location,
+            range: self.range.start..other.range.end,
+        }
+    }
 }
 
 impl ariadne::Span for Span {

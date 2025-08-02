@@ -7,6 +7,8 @@ use crate::{
     parser::lib::{Parsable, Parser},
 };
 
+const KEYWORDS: &[&str] = &["def"];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identifier<'a> {
     identifier: &'a str,
@@ -21,4 +23,14 @@ pub enum Expression<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pattern<'a> {
     Capture(Identifier<'a>),
+}
+
+impl<'a> Parsable<'a> for Identifier<'a> {
+    fn parse(
+        input: &'a str,
+        index: usize,
+        location: &'static str,
+    ) -> Result<(usize, Self), Warning, Error, Error> {
+        todo!()
+    }
 }
